@@ -27,6 +27,15 @@ def load_data():
         st.error(f"❌ Missing columns in plants.csv: {missing}")
         return None
 
+    # Clean blooming_season: strip, lowercase, filter empty
+    df["blooming_season"] = df["blooming_season"].astype(str).str.strip()
+    df["blooming_season"] = df["blooming_season"].apply(
+        lambda x: ",".join([s.strip().capitalize() for s in x.split(",") if s.strip()])
+    )
+
+    # Ensure flower_color is non-empty and string
+    df["flower_color"] = df["flower_color"].astype(str).str.strip()
+
     return df
 
 plants = load_data()
@@ -56,39 +65,13 @@ filtered = plants[
     plants["soil_type"].isin(selected_soil) &
     plants["flower_color"].isin(selected_color) &
     plants["drought_tolerant"].isin(selected_drought)
-]
+].reset_index(drop=True)  # Reset index to avoid misalignment!
 
 st.write(f"### Showing {len(filtered)} plant(s)")
 
-def expand_seasons(season_str):
-    # Convert something like "Winter-Spring" into ["Winter", "Spring"]
-    seasons_order = ["Spring", "Summer", "Autumn", "Winter"]
-    season_str = str(season_str)
-    result = []
-
-    # Split by comma first
-    parts = season_str.split(",")
-    for part in parts:
-        part = part.strip()
-        if "-" in part:
-            start, end = part.split("-")
-            start = start.strip()
-            end = end.strip()
-            # Find index in seasons_order
-            try:
-                start_idx = seasons_order.index(start)
-                end_idx = seasons_order.index(end)
-                # Add all seasons from start to end (inclusive)
-                if start_idx <= end_idx:
-                    result.extend(seasons_order[start_idx:end_idx+1])
-                else:
-                    # Wrap around year end
-                    result.extend(seasons_order[start_idx:] + seasons_order[:end_idx+1])
-            except ValueError:
-                pass
-        else:
-            result.append(part)
-    return result
+if len(filtered) == 0:
+    st.info("🔍 No plants match your filters. Try adjusting the criteria.")
+    st.stop()
 
 # -------------------------
 # Bloom Calendar Plot
@@ -96,22 +79,43 @@ def expand_seasons(season_str):
 seasons = ["Spring", "Summer", "Autumn", "Winter"]
 y_labels = filtered["scientific_name"].tolist()
 
-fig, ax = plt.subplots(figsize=(10, 6))
+fig, ax = plt.subplots(figsize=(12, max(6, len(filtered) * 0.3)))  # Dynamic height
+ax.set_facecolor("#f8f9fa")  # Light background for better contrast
 
-for i, row in filtered.iterrows():
-    bloom_seasons = expand_seasons(row["blooming_season"])
+# Create a color-to-label mapping for legend
+unique_colors = filtered["flower_color"].dropna().unique()
+color_legend = {color: [] for color in unique_colors}
+for _, row in filtered.iterrows():
+    bloom_seasons = [s.strip().capitalize() for s in row["blooming_season"].split(",") if s.strip()]
     for season in bloom_seasons:
         if season in seasons:
             x = seasons.index(season)
-            y = y_labels.index(row["scientific_name"])
-            ax.scatter(x, y, color=row["flower_color"], s=200, edgecolor="black")
+            y = filtered.index.get_loc(_)  # Safe index lookup using .get_loc()
+            ax.scatter(x, y, color=row["flower_color"], s=200, edgecolor="black", alpha=0.9)
+            color_legend[row["flower_color"]].append(row["common_name"])
 
+# Set ticks and labels
 ax.set_xticks(range(len(seasons)))
-ax.set_xticklabels(seasons)
+ax.set_xticklabels(seasons, fontsize=12)
 ax.set_yticks(range(len(y_labels)))
-ax.set_yticklabels(y_labels)
-ax.set_title("🌸 Seasonal Bloom Calendar", fontsize=16)
+ax.set_yticklabels(y_labels, fontsize=10)
+ax.set_title("🌸 Seasonal Bloom Calendar", fontsize=16, fontweight="bold", pad=20)
+
+# Add legend (only show top 10 colors to avoid clutter)
+if len(color_legend) > 10:
+    st.warning("⚠️ More than 10 flower colors detected. Legend limited to first 10 for clarity.")
+    color_legend = dict(list(color_legend.items())[:10])
+
+legend_elements = [
+    plt.Line2D([0], [0], marker='o', color='w', label=f"{color} ({len(names)} plants)",
+               markerfacecolor=color, markersize=10, markeredgecolor='black')
+    for color, names in color_legend.items()
+]
+if legend_elements:
+    ax.legend(handles=legend_elements, loc="upper right", bbox_to_anchor=(1.4, 1), fontsize=9)
+
 plt.tight_layout()
+plt.subplots_adjust(right=0.75)  # Make room for legend
 
 st.pyplot(fig)
 
@@ -119,10 +123,20 @@ st.pyplot(fig)
 # Download Button
 # -------------------------
 buf = BytesIO()
-fig.savefig(buf, format="png")
+fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
 st.download_button(
     label="⬇️ Download Bloom Calendar as PNG",
     data=buf.getvalue(),
     file_name="bloom_calendar.png",
     mime="image/png"
 )
+
+# -------------------------
+# Optional: Show filtered table
+# -------------------------
+with st.expander("📋 View Full Plant List"):
+    st.dataframe(
+        filtered[["scientific_name", "common_name", "sun", "soil_type", "flower_color", "blooming_season", "drought_tolerant"]],
+        use_container_width=True,
+        height=300
+    )
