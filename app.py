@@ -60,6 +60,36 @@ filtered = plants[
 
 st.write(f"### Showing {len(filtered)} plant(s)")
 
+def expand_seasons(season_str):
+    # Convert something like "Winter-Spring" into ["Winter", "Spring"]
+    seasons_order = ["Spring", "Summer", "Autumn", "Winter"]
+    season_str = str(season_str)
+    result = []
+
+    # Split by comma first
+    parts = season_str.split(",")
+    for part in parts:
+        part = part.strip()
+        if "-" in part:
+            start, end = part.split("-")
+            start = start.strip()
+            end = end.strip()
+            # Find index in seasons_order
+            try:
+                start_idx = seasons_order.index(start)
+                end_idx = seasons_order.index(end)
+                # Add all seasons from start to end (inclusive)
+                if start_idx <= end_idx:
+                    result.extend(seasons_order[start_idx:end_idx+1])
+                else:
+                    # Wrap around year end
+                    result.extend(seasons_order[start_idx:] + seasons_order[:end_idx+1])
+            except ValueError:
+                pass
+        else:
+            result.append(part)
+    return result
+
 # -------------------------
 # Bloom Calendar Plot
 # -------------------------
@@ -69,7 +99,7 @@ y_labels = filtered["scientific_name"].tolist()
 fig, ax = plt.subplots(figsize=(10, 6))
 
 for i, row in filtered.iterrows():
-    bloom_seasons = [s.strip() for s in str(row["blooming_season"]).split(",")]
+    bloom_seasons = expand_seasons(row["blooming_season"])
     for season in bloom_seasons:
         if season in seasons:
             x = seasons.index(season)
